@@ -1,6 +1,7 @@
 -- =====================================================================
 -- Olist E-Commerce SQL Project | PostgreSQL | Ekansh Goil
 -- Create Database and tables.
+-- v2 update: added category_translation table (English category names) and updated Q3, Q4, Q10.
 -- =====================================================================
 
 -- Created database named olist_ecommerce
@@ -64,15 +65,22 @@ CREATE TABLE order_payments (
     PRIMARY KEY (order_id, payment_sequential)
 );
 
+-- v2: Category names in products are in Portuguese. This table maps them to English.
+-- Source file: product_category_name_translation.csv (import it with pgAdmin like the other tables).
+CREATE TABLE IF NOT EXISTS category_translation (
+    product_category_name          VARCHAR(100) PRIMARY KEY,   -- Portuguese name (as in products)
+    product_category_name_english  VARCHAR(100)
+);
+
 
 -- -----------------------------------------------------------------------
 -- LOAD DATA
 -- Importing/Loading data in THIS order:
--- 1) customers  2) products  3) orders  4) order_items  5) order_payments
+-- 1) customers  2) products  3) orders  4) order_items  5) order_payments  6) category_translation
 
 -- After loading/importing data from the dataset we expect
 -- Customer = 99,441 | Products = 32,951 | Orders = 99,441 
---	| Order_items = 112,650 | Order_payments = 103,886
+--	| Order_items = 112,650 | Order_payments = 103,886 | Category_translation = 71
 -- -----------------------------------------------------------------------
 
 
@@ -128,6 +136,20 @@ SELECT
 	COUNT(DISTINCT customer_unique_id) AS real_customers
 FROM customers;
 
+-- Check 6 (v2): Is the translation table loaded? (expect 71 rows)
+
+SELECT COUNT(*) AS translation_rows
+FROM category_translation;
+
+-- Check 7 (v2): Which categories in products have NO English name? (expect 2)
+-- These keep their Portuguese name in the queries below (COALESCE).
+
+SELECT DISTINCT p.product_category_name
+FROM products p
+LEFT JOIN category_translation t ON t.product_category_name = p.product_category_name
+WHERE p.product_category_name IS NOT NULL
+  AND t.product_category_name IS NULL;
+
 -- =====================================================================
 -- Business analysis (10 questions)
 -- Revenue = total item price of DELIVERED orders (freight not included)
@@ -160,29 +182,33 @@ GROUP BY TO_CHAR(o.order_purchase_timestamp, 'YYYY-MM')
 ORDER BY month;
 
 -- Q3. Which 10 product categories earn the most revenue?
+-- (v2: English names via category_translation)
 
 SELECT
-	p.product_category_name AS category,
+	COALESCE(t.product_category_name_english, p.product_category_name) AS category,
 	COUNT(*) 	AS items_sold,
 	SUM(oi.price)	AS revenue
 FROM orders o
 JOIN order_items oi ON oi.order_id = o.order_id
 JOIN products p ON p.product_id = oi.product_id
+LEFT JOIN category_translation t ON t.product_category_name = p.product_category_name
 WHERE o.order_status = 'delivered'
-GROUP BY p.product_category_name
+GROUP BY COALESCE(t.product_category_name_english, p.product_category_name)
 ORDER BY revenue DESC
 LIMIT 10;
 
 -- Q4. Which categories have sold more than 1,000 items, and what is their average price?
+-- (v2: English names via category_translation)
 
 SELECT
-	p.product_category_name AS category,
+	COALESCE(t.product_category_name_english, p.product_category_name) AS category,
 	COUNT(*) 	AS items_sold,
 	AVG(oi.price)	AS avg_price
-FROM order_items oi	
+FROM order_items oi
 JOIN products p ON p.product_id = oi.product_id
+LEFT JOIN category_translation t ON t.product_category_name = p.product_category_name
 WHERE p.product_category_name IS NOT NULL
-GROUP BY p.product_category_name
+GROUP BY COALESCE(t.product_category_name_english, p.product_category_name)
 HAVING COUNT(*) > 1000
 ORDER BY items_sold DESC;
 
@@ -256,13 +282,15 @@ FROM (
 	) AS repeat_buyers;
 
 -- Q10. Which items are priced above the average item price? (subquery in WHERE)
+-- (v2: English names via category_translation)
 
 SELECT
-	p.product_category_name AS category,
+	COALESCE(t.product_category_name_english, p.product_category_name) AS category,
 	COUNT(*) AS expensive_items
 FROM order_items oi
 JOIN products p ON p.product_id = oi.product_id
+LEFT JOIN category_translation t ON t.product_category_name = p.product_category_name
 WHERE oi.price > (SELECT AVG(price) FROM order_items)
-GROUP BY p.product_category_name
+GROUP BY COALESCE(t.product_category_name_english, p.product_category_name)
 ORDER BY expensive_items DESC
 LIMIT 10;
